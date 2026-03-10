@@ -1,0 +1,70 @@
+# =============================================================================
+# WARMUP MODE - Nurtured-Only Engagement
+# =============================================================================
+# Safe warm-up for new/restricted accounts.
+# Likes ONLY for nurtured accounts. NO comments — risk of ban during warmup.
+# Non-nurtured = scroll past with natural pauses.
+
+mode: warmup
+description: "Разогрев: ТОЛЬКО лайки для nurtured аккаунтов, посещение профилей VIP, ZERO комментариев"
+
+# LLM Settings
+model: gemini-3-flash-preview
+temperature: 1.0  # Google Gemini 3 recommended (Jan 2026)
+
+# Session Duration (minutes)
+session_duration: [10, 40]  # Random 10-40 minutes per session
+
+# Engagement Probabilities (for NURTURED accounts only)
+# Non-nurtured accounts get ZERO engagement — scroll past!
+engagement_rates:
+  nurtured:
+    like: 1.0       # 100% — always like nurtured posts
+    comment: 0.0    # ZERO — NO comments during warmup (ban risk!)
+    save: 0.10      # 10% chance to save nurtured posts
+    share: 0.0      # No shares in warmup
+  non_nurtured:
+    like: 0.0       # ZERO
+    comment: 0.0    # ZERO
+    save: 0.0       # ZERO
+    share: 0.0      # ZERO
+
+# Comment Limits — ZERO in warmup mode
+comment_limits:
+  max_per_24h: 0
+  target_per_session: 0
+
+# Profile Visits (nurtured accounts only)
+profile_visits:
+  enabled: true
+  accounts_per_session: [1, 2]    # Visit 1-2 nurtured profiles per session
+  posts_to_like: [2, 3]           # Like 2-3 posts on their profile
+  scroll_grid: true               # Scroll their post grid before liking
+
+# Non-Nurtured Scroll Behavior
+non_nurtured_behavior:
+  scroll_past: true              # Always scroll past non-nurtured
+  watch_time: [1, 3]             # Pause 1-3 seconds before scrolling (natural)
+
+# Scroll Behavior
+scroll_speed: normal
+posts_to_view: [15, 35]  # View 15-35 posts per session
+
+# Visual Analysis
+screenshot_for_comments: true   # Screenshot before commenting on nurtured
+screenshot_for_carousel: false  # Don't screenshot carousel pages
+
+# Carousel Behavior (for nurtured accounts)
+carousel_swipes: [2, 4]  # Swipe 2-4 pages for nurtured accounts
+
+# Video Watch Behavior (for nurtured accounts)
+watch_videos: true
+video_watch_time: [5, 13]  # Watch 5-13 seconds (view counts after 5s)
+
+# Caption Analysis (for nurtured accounts only)
+expand_captions: true   # Expand captions on nurtured posts (for CTA)
+detect_cta: true         # Look for CTA in nurtured post captions
+
+# Skip Behavior
+skip_probability: 0.0   # Don't randomly skip — behavior is deterministic:
+                         # nurtured = engage, non-nurtured = scroll past

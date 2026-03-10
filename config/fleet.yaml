@@ -1,0 +1,36 @@
+# =============================================================================
+# FLEET CONFIGURATION
+# =============================================================================
+# Master configuration for the entire device fleet.
+# Individual device configs in config/devices/ override these defaults.
+# =============================================================================
+
+fleet:
+  name: "my_fleet"
+
+# Global proxy provider settings (can be overridden per device)
+proxy:
+  provider: "decodo"
+  host: "gate.decodo.com"
+  port: 10001
+  username_env: "DECODO_USERNAME"
+  password_env: "DECODO_PASSWORD"
+
+# Account rotation strategy
+rotation:
+  # Strategy options:
+  # - sequential: Go through accounts in order
+  # - random: Random account each session
+  # - random_within_schedule: Random but respects per-account schedules
+  strategy: "random_within_schedule"
+  
+  # Session duration per account (randomized within range)
+  min_session_minutes: 15
+  max_session_minutes: 40
+  
+  # Break between switching accounts on same device
+  break_between_accounts_minutes: 5
+
+# Device list (references config/devices/*.yaml by device_id)
+# This is auto-populated if empty by scanning config/devices/
+devices: []

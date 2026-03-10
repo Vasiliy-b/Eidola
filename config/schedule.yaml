@@ -1,0 +1,324 @@
+# =============================================================================
+# EIDOLA SCHEDULE CONFIGURATION v2 — Archetype-based Daily Plan
+# =============================================================================
+# Human-like scheduling with per-session archetypes, energy levels,
+# jitter, budget control, and anti-repeat logic.
+#
+# Active hours: 08:00 — 00:30 (weekday), 09:30 — 00:30 (weekend)
+# =============================================================================
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+global:
+  timezone: "America/New_York"
+
+  daily_budget:
+    target_minutes: 240         # Gaussian center (~4 hours)
+    variance_minutes: 30        # std-dev for gauss
+    min_minutes: 180            # hard floor
+    max_minutes: 280            # hard ceiling
+
+  limits:
+    max_sessions_per_day: 12
+    min_gap_between_sessions_minutes: 20
+    typical_gap_range_minutes: [25, 90]
+
+  # Rate limits per session (Instagram safety limits)
+  rate_limits:
+    likes_per_hour: 30
+    comments_per_hour: 10
+    follows_per_hour: 10
+    dms_per_hour: 5
+    saves_per_hour: 20
+
+# =============================================================================
+# WEEKDAY ARCHETYPES (Mon-Fri) — 11 sessions
+# =============================================================================
+# Each archetype is a "slot" the planner can roll.
+# base_time + uniform(-jitter, +jitter) → actual start
+# duration is uniform(min, max)
+# probability is the baseline chance the slot fires (scaled by energy)
+# energy_weight controls how much energy level affects this slot
+# mode is the operation mode for the session
+weekday_archetypes:
+  # --- 1. Wake-up check: quick glance at phone after alarm ---
+  - label: "wake_up_check"
+    base_time: "08:15"
+    jitter_minutes: 30
+    duration_minutes: [8, 15]
+    probability: 0.85
+    energy_weight: 0.8
+    mode: active_engage
+
+  # --- 2. Morning commute: scroll on the subway / bus ---
+  - label: "morning_commute"
+    base_time: "08:50"
+    jitter_minutes: 20
+    duration_minutes: [12, 22]
+    probability: 0.70
+    energy_weight: 0.9
+    mode: active_engage
+
+  # --- 3. Mid-morning break: quick work break scroll ---
+  - label: "mid_morning_break"
+    base_time: "10:30"
+    jitter_minutes: 25
+    duration_minutes: [8, 18]
+    probability: 0.65
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 4. Lunch scroll: longer session during lunch ---
+  - label: "lunch_scroll"
+    base_time: "12:30"
+    jitter_minutes: 30
+    duration_minutes: [18, 35]
+    probability: 0.85
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 5. Afternoon lull: bored at work, quick peek ---
+  - label: "afternoon_lull"
+    base_time: "14:45"
+    jitter_minutes: 30
+    duration_minutes: [10, 20]
+    probability: 0.55
+    energy_weight: 1.1
+    mode: active_engage
+
+  # --- 6. Late afternoon: wrapping up work, decompressing ---
+  - label: "late_afternoon"
+    base_time: "16:30"
+    jitter_minutes: 25
+    duration_minutes: [10, 20]
+    probability: 0.60
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 7. Evening commute: scroll on the way home ---
+  - label: "evening_commute"
+    base_time: "17:45"
+    jitter_minutes: 20
+    duration_minutes: [12, 25]
+    probability: 0.75
+    energy_weight: 0.9
+    mode: active_engage
+
+  # --- 8. Dinner wind-down: relax after eating ---
+  - label: "dinner_wind_down"
+    base_time: "19:30"
+    jitter_minutes: 30
+    duration_minutes: [15, 30]
+    probability: 0.80
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 9. Evening browse: prime Instagram time ---
+  - label: "evening_browse"
+    base_time: "21:00"
+    jitter_minutes: 30
+    duration_minutes: [20, 40]
+    probability: 0.90
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 10. Before bed: last check of the day ---
+  - label: "before_bed"
+    base_time: "23:00"
+    jitter_minutes: 25
+    duration_minutes: [10, 22]
+    probability: 0.70
+    energy_weight: 0.8
+    mode: active_engage
+
+  # --- 11. Can't sleep: late-night doomscrolling ---
+  - label: "cant_sleep"
+    base_time: "00:15"
+    jitter_minutes: 15
+    duration_minutes: [8, 18]
+    probability: 0.25
+    energy_weight: 0.6
+    mode: active_engage
+
+# =============================================================================
+# WEEKEND ARCHETYPES (Sat-Sun) — 8 sessions, later starts, longer binges
+# =============================================================================
+weekend_archetypes:
+  # --- 1. Lazy morning: slow wake-up, scrolling in bed ---
+  - label: "lazy_morning"
+    base_time: "10:00"
+    jitter_minutes: 35
+    duration_minutes: [15, 30]
+    probability: 0.80
+    energy_weight: 0.8
+    mode: active_engage
+
+  # --- 2. Brunch scroll: browsing during/after brunch ---
+  - label: "brunch_scroll"
+    base_time: "11:45"
+    jitter_minutes: 25
+    duration_minutes: [12, 25]
+    probability: 0.70
+    energy_weight: 0.9
+    mode: active_engage
+
+  # --- 3. Midday binge: lazy weekend long session ---
+  - label: "midday_binge"
+    base_time: "14:00"
+    jitter_minutes: 35
+    duration_minutes: [25, 45]
+    probability: 0.85
+    energy_weight: 1.1
+    mode: active_engage
+
+  # --- 4. Afternoon gap: chill afternoon scroll ---
+  - label: "afternoon_gap"
+    base_time: "16:30"
+    jitter_minutes: 30
+    duration_minutes: [10, 22]
+    probability: 0.55
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 5. Pre-dinner: waiting for food / relaxing ---
+  - label: "pre_dinner"
+    base_time: "18:15"
+    jitter_minutes: 25
+    duration_minutes: [12, 25]
+    probability: 0.65
+    energy_weight: 0.9
+    mode: active_engage
+
+  # --- 6. Evening social: peak weekend social media time ---
+  - label: "evening_social"
+    base_time: "20:30"
+    jitter_minutes: 30
+    duration_minutes: [20, 40]
+    probability: 0.90
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 7. Night binge: Saturday night deep scroll ---
+  - label: "night_binge"
+    base_time: "22:30"
+    jitter_minutes: 25
+    duration_minutes: [20, 40]
+    probability: 0.75
+    energy_weight: 1.0
+    mode: active_engage
+
+  # --- 8. Late scroll: can't-put-the-phone-down ---
+  - label: "late_scroll"
+    base_time: "00:15"
+    jitter_minutes: 15
+    duration_minutes: [8, 18]
+    probability: 0.35
+    energy_weight: 0.6
+    mode: active_engage
+
+# =============================================================================
+# ENERGY LEVELS — rolled once per day, affects all sessions
+# =============================================================================
+energy_levels:
+  low:
+    multiplier: 0.7
+    budget_offset: -40
+    probability: 0.15
+  normal:
+    multiplier: 1.0
+    budget_offset: 0
+    probability: 0.55
+  high:
+    multiplier: 1.2
+    budget_offset: 30
+    probability: 0.30
+
+# =============================================================================
+# SCHEDULE BOOSTS — optional modifiers for specific days/times
+# =============================================================================
+boosts:
+  friday_evening_boost:
+    windows: ["dinner_wind_down", "evening_browse"]
+    probability_add: 0.10
+    duration_add_minutes: 5
+
+  weekend_morning_boost:
+    windows: ["lazy_morning", "brunch_scroll"]
+    probability_add: 0.05
+    duration_add_minutes: 3
+
+# =============================================================================
+# OPERATION MODES (kept from v1 for reference by session_runner)
+# =============================================================================
+modes:
+  warmup:
+    description: "Soft warmup — feed scroll, rare likes on nurtured accounts"
+    model: gemini-3-flash-preview
+    temperature: 1.0
+    engagement_rates:
+      like: 0.10
+      comment: 0.01
+      save: 0.02
+    scroll_speed: normal
+    posts_to_view: [15, 40]
+    nurtured_boost: 2.0
+
+  feed_scroll:
+    description: "Casual feed scrolling with minimal engagement"
+    model: gemini-3-flash-preview
+    temperature: 1.0
+    engagement_rates:
+      like: 0.15
+      comment: 0.02
+      save: 0.05
+    scroll_speed: normal
+    posts_to_view: [10, 30]
+    nurtured_boost: 3.0
+
+  active_engage:
+    description: "Active engagement with interesting content"
+    model: gemini-3-flash-preview
+    temperature: 1.0
+    engagement_rates:
+      like: 0.40
+      comment: 0.15
+      save: 0.20
+    scroll_speed: slow
+    posts_to_view: [15, 40]
+    nurtured_boost: 2.0
+    screenshot_for_comments: true
+
+# =============================================================================
+# SPECIAL DAYS OVERRIDE
+# =============================================================================
+special_days:
+  - date: "01-01"
+    sessions: []
+
+  - date: "12-25"
+    sessions:
+      - label: "christmas_evening"
+        base_time: "20:00"
+        jitter_minutes: 30
+        duration_minutes: [5, 10]
+        probability: 0.5
+        energy_weight: 0.5
+        mode: feed_scroll
+
+  - date: "02-14"
+    sessions:
+      - label: "valentine_morning"
+        base_time: "09:00"
+        jitter_minutes: 20
+        duration_minutes: [10, 20]
+        probability: 0.9
+        energy_weight: 1.0
+        mode: active_engage
+      - label: "valentine_evening"
+        base_time: "20:00"
+        jitter_minutes: 20
+        duration_minutes: [20, 30]
+        probability: 0.95
+        energy_weight: 1.0
+        mode: active_engage

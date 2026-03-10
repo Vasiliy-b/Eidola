@@ -1,0 +1,13 @@
+# Gmail account for device phone_01
+# Used for Play Store authentication and 2FA recovery
+account_id: "gmail_phone_01"
+device_id: "phone_01"
+
+gmail:
+  email: "your_gmail@gmail.com"
+  password_env: "GMAIL_PASS_PHONE_01"
+  totp_secret_env: "GMAIL_TOTP_PHONE_01"
+
+metadata:
+  created_at: "2026-01-01"
+  notes: "Play Store account for phone_01"

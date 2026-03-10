@@ -1,0 +1,39 @@
+# =============================================================================
+# FEED SCROLL MODE - Casual Browsing
+# =============================================================================
+# Light engagement, mostly scrolling and viewing content
+
+mode: feed_scroll
+description: "Листание ленты, редкие лайки, почти без комментов"
+
+# LLM Settings
+model: gemini-3-flash-preview  # Unified model for all modes
+temperature: 1.0  # Google Gemini 3 recommended (Jan 2026)
+
+# Engagement Probabilities
+engagement_rates:
+  like: 0.15      # 15% of posts get liked
+  comment: 0.02   # 2% get comments (very rare)
+  save: 0.05      # 5% get saved
+  share: 0.01     # 1% get shared
+
+# Nurtured Account Boost
+# Multiply engagement rates by this factor for VIP accounts
+nurtured_boost: 3.0
+
+# Scroll Behavior
+scroll_speed: normal
+posts_to_view: [10, 30]  # View 10-30 posts per session
+
+# Comment Style
+# Natural comments — no rigid word limits
+
+# Visual Analysis
+screenshot_for_comments: false  # No screenshots in this mode
+screenshot_for_carousel: false  # Don't screenshot carousel pages
+
+# Carousel Behavior
+carousel_swipes: [1, 3]  # Just peek at 1-3 pages
+
+# Skip Behavior (human-like)
+skip_probability: 0.15  # 15% chance to skip even interesting posts

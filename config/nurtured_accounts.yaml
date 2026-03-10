@@ -1,0 +1,36 @@
+# Nurtured Accounts Configuration
+# These accounts receive priority engagement (more likes, comments, reposts)
+#
+# Priority levels:
+#   - vip: Maximum engagement, comment on every post, always like/repost
+#   - high: Strong engagement, comment frequently, always like
+#   - medium: Regular boosted engagement
+#
+# IMPORTANT: Use exact Instagram usernames (as shown on profile, without @)
+
+accounts:
+  # =========================================================================
+  # VIP - Your main brand accounts
+  # =========================================================================
+  - username: your_main_brand
+    priority: vip
+    notes: "Main brand account — always engage"
+
+  # =========================================================================
+  # HIGH - Key partners / influencers in your niche
+  # =========================================================================
+  - username: partner_account_1
+    priority: high
+    notes: "Niche influencer"
+
+  - username: partner_account_2
+    priority: high
+
+  # =========================================================================
+  # MEDIUM - Your other operated accounts (cross-engagement)
+  # =========================================================================
+  - username: my_second_account
+    priority: medium
+
+  - username: my_third_account
+    priority: medium
