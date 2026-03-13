@@ -185,9 +185,14 @@ class SessionRunner:
             # Initialize memory
             memory = None
             try:
+                import uuid as _uuid
+                _session_id = str(_uuid.uuid4())
                 memory = SyncAgentMemory()
                 if memory.is_connected():
-                    set_memory(memory, self.account_id, self.instagram_username)
+                    set_memory(
+                        memory, self.account_id, self.instagram_username,
+                        session_id=_session_id,
+                    )
                     yield "Memory connected"
             except Exception as e:
                 logger.warning(f"Memory init failed: {e}")

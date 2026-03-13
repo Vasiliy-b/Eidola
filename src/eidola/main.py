@@ -1469,14 +1469,17 @@ async def main():
     # =========================================================================
     memory = None
     try:
+        import uuid as _uuid
+        _session_id = str(_uuid.uuid4())
         memory = SyncAgentMemory()
         if memory.is_connected():
             logger.info("MongoDB memory connected")
-            set_memory(memory, args.account, instagram_username, device_id=device_id)
+            set_memory(
+                memory, args.account, instagram_username,
+                device_id=device_id, session_id=_session_id,
+            )
             
-            # Comment limits: randomized daily budget (12-23/24h) via MongoDB rolling window.
-            # Limit is generated once per session via ContextVar, enforced in memory_tools.
-            logger.info("Comment limit: randomized daily budget (12-23) via MongoDB 24h rolling window")
+            logger.info("Comment limits: daily (9-15/24h via MongoDB), per-session (3-5 via MongoDB)")
             
             # Load nurtured accounts from YAML config
             _load_nurtured_accounts(memory, args.account, device_id=device_id)

@@ -254,7 +254,7 @@ def build_mode_instruction(mode: str, config: dict[str, Any]) -> str:
 **CTA is MANDATORY** for nurtured accounts:
 - Post: "Comment 🔥 if you agree" → Your comment: `🔥`
 - Post: "Type YES for more" → Your comment: `YES`
-- Post: "Drop FIRE below" → Your comment: `FIRE`
+- Post: "Drop MOON below" → Your comment: `MOON`
 
 **No CTA?** React like a real person — emojis, short reactions, whatever feels natural.
 """,
@@ -438,14 +438,130 @@ detect_screen() → expect instagram_feed
 
 POSTING_INSTRUCTION_BLOCK = """
 
-## Posting (if scheduled)
-Call `get_posting_manifest()` at session start. has_content=false→skip. true→POST FIRST.
+## STEP 0 — POST SCHEDULED CONTENT (runs BEFORE Core Loop)
 
-Flow: get_posting_manifest()→tap [+] Create→select media from Recents→Next→Next→type caption→Share→`report_posting_result(content_id, success)`.
-- feed_photo: tap first photo, Next, skip filters, Next, caption, Share
-- feed_carousel: tap "Select", pick media_count items, Next, Next, caption, Share
-- reel: REEL tab, select video, Next, Next, caption, Next
-- Media already on device (Recents). Caption EXACTLY as manifest. Dismiss popups with "OK"/"Not Now".
+Your FIRST action every session: call `get_posting_manifest()`.
+
+- `has_content=false` → skip to Core Loop Step 1.
+- `has_content=true` → execute the posting flow below. Do NOT browse feed, like, comment, save, or call `analyze_feed_posts()` until posting is complete.
+
+### 0.1 — Read the manifest
+
+From `get_posting_manifest()`, store these values:
+
+| Field | Use |
+|---|---|
+| `posting_flow` | Which flow to execute: feed_photo | feed_carousel | reel |
+| `has_caption` | Boolean — controls whether to write a caption |
+| `caption` | Seed text for creative adaptation (only when has_caption=true) |
+| `media_count` | Photos to select (only for feed_carousel) |
+
+Ignore content_id and account_id — the reporting system reads them automatically from the stored manifest.
+
+### 0.2 — Navigate to the Create screen
+
+1. `return_to_feed()` — the [+] button only appears at the feed top.
+2. `find_element("create_button")` → if found, `tap(center_x, center_y)`.
+3. If not found: `tap(66, 154)` — fixed coordinates for the top-left [+] near the Instagram logo.
+4. If still not on the Create screen: tap Profile tab → find and tap [+] in the profile action bar.
+
+**Verify:** call `get_elements_for_ai()` — confirm POST / REEL / STORY tabs and a media gallery are visible. If absent, retry the next approach.
+
+### 0.3 — Caption rules
+
+Read `has_caption` from the manifest. Exactly one of two paths applies:
+
+---
+
+**`has_caption=true` → CREATIVE ADAPTATION**
+
+Tap the caption field, then call `type_text()` with an original caption you compose. The manifest caption is a **seed theme only** — extract its subject or mood, then write something entirely new in your own voice. Do not reference, quote, or rearrange the seed's wording.
+
+**Transformation process:**
+
+1. Identify the core theme or mood of the manifest caption (one or two abstract words — e.g. "fairy tale anticipation", "cooking success", "fitness pride").
+2. Generate a fresh phrase that captures that theme. Vary your vocabulary every single time — never fall back on stock phrases.
+3. Append 1–2 emojis that match the mood. Select emojis you have not used in recent captions.
+
+**Seed-type rules:**
+
+- Seed is a question → respond with a playful statement or a different question on the same theme
+- Seed is a word or short phrase → expand into a casual, conversational thought (5–12 words)
+- Seed is a sentence → condense into a punchy fragment or flip the perspective
+- Seed is only emojis → you may keep them unchanged, or prepend 2–4 words
+
+**Variation dimensions (rotate across posts):**
+
+- Tone: playful, dreamy, bold, reflective, witty, mysterious, deadpan, warm
+- Form: question, exclamation, ellipsis trail-off, punchy fragment, two-part line
+- Length: 3–12 words
+
+**Hard constraints:**
+
+- Preserve the core theme of the manifest caption
+- Every word you type must be your own — never paste, quote, or rearrange the manifest caption's exact wording
+- Never add hashtags unless the manifest caption already contains them
+- Never repeat the same emoji more than twice in a single caption
+- Never produce more than 4 emojis total in a single caption
+- If `type_text()` returns `blocked=true`, rephrase your text completely and retry once
+
+---
+
+**`has_caption=false` → DO NOTHING**
+
+Do not tap the caption field. Do not call `type_text()`. Do not invent any text. Proceed directly to the Share button. An empty caption is intentional. A hard safety guard in `type_text()` will block any input when the manifest caption is empty, so attempting to type is both wrong and futile.
+
+---
+
+### 0.4 — Execute by posting_flow
+
+**feed_photo** (single image):
+1. Tap "POST" tab if not already active
+2. Tap the first photo in Recents gallery
+3. Tap "Next" (top-right)
+4. Skip filters → tap "Next"
+5. Caption step — apply rules from section 0.3
+6. Tap "Share"
+
+**feed_carousel** (multiple images):
+1. Tap "POST" tab if not already active
+2. Tap "Select Multiple"
+3. Tap `media_count` photos from Recents
+4. Tap "Next" → skip filters → tap "Next"
+5. Caption step — apply rules from section 0.3
+6. Tap "Share"
+
+**reel** (video):
+1. Tap "REEL" tab
+2. Tap the video in Recents
+3. Tap "Next" → tap "Next"
+4. Caption step — apply rules from section 0.3
+5. Tap "Share"
+
+### 0.5 — Confirm and report
+
+After tapping Share: `wait_for_idle(5000)` → `get_elements_for_ai()`.
+
+**Success** — feed screen or "shared" confirmation visible:
+`report_posting_result(success=true)`
+
+**Failure** — error or unexpected screen:
+`report_posting_result(success=false, error_message="brief description of failure")`
+
+The complete call signature is `success` and optionally `error_message`. No other parameters. Do NOT pass content_id, account_id, or any ID — the system reads them from the stored manifest.
+
+After reporting (success or failure), proceed to Core Loop Step 1.
+
+### Posting constraints
+
+- Media files are pre-loaded on the device in Recents/Gallery. You do not upload anything.
+- Dismiss popups ("OK" / "Not Now" / "Done" / "Allow") by tapping the visible button.
+- Do NOT swipe right from the feed — that opens the Stories camera, not post creation.
+- `has_caption=false` means ZERO text. Not ".", not " ", not a space, not a single emoji. Skip the caption field entirely.
+- `has_caption=true` means creative adaptation via `type_text()`. Never copy the manifest caption word-for-word.
+- `report_posting_result()` accepts ONLY `success` and optionally `error_message`. Never fabricate or pass IDs.
+
+⛔ CRITICAL FAILURE: If `has_content=true` and you skip to feed browsing without completing the posting flow and calling `report_posting_result()`, the entire session is a failure. You MUST post first.
 """
 
 

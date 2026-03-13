@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 from pymongo.database import Database
 from pymongo.errors import ConnectionFailure, PyMongoError
 
@@ -87,6 +87,24 @@ class SyncAgentMemory:
                 [("user_id", 1), ("visited_at", -1)],
                 background=True,
             )
+            # Daily comment limits — one random limit per account per calendar day
+            self.db["daily_limits"].create_index(
+                [("user_id", 1), ("date", 1)],
+                unique=True,
+                background=True,
+            )
+            self.db["daily_limits"].create_index(
+                "created_at", expireAfterSeconds=172800, background=True,
+            )
+            # Session comment budgets — per-session comment counters
+            self.db["session_budgets"].create_index(
+                [("user_id", 1), ("session_id", 1)],
+                unique=True,
+                background=True,
+            )
+            self.db["session_budgets"].create_index(
+                "created_at", expireAfterSeconds=86400, background=True,
+            )
         except PyMongoError as e:
             logger.warning(f"Index creation failed (may already exist): {e}")
     
@@ -108,36 +126,94 @@ class SyncAgentMemory:
     ) -> str:
         """
         Generate stable composite post ID from visible information.
-        
-        Since Instagram doesn't expose media_id in UI, we create a hash from:
-        - Author username (required)
-        - Timestamp text like "2h", "1d", "3 days ago" (required for uniqueness)
-        
-        NOTE: caption_snippet is IGNORED to ensure stable IDs.
-        Different views show different caption parts, causing duplicate interactions.
-        
+
+        Uses date-bucket normalization: relative timestamps like "18h" and "19h"
+        are converted to the same calendar date (e.g. "2026-03-10"), producing
+        a stable hash across sessions.
+
         Args:
             author_username: Post author's @username
             timestamp_text: Relative or absolute timestamp shown on post
             caption_snippet: DEPRECATED - ignored for stability
-            
+
         Returns:
             Composite ID like "author_abc123def"
         """
-        # Normalize author
+        import re as _re
+        from datetime import datetime, timedelta, timezone
+
         author = author_username.lower().strip().lstrip("@")
-        
-        # Build composite string - ONLY username + timestamp for stability
+
         parts = [author]
-        if timestamp_text:
-            # Normalize timestamp: lowercase, strip extra spaces
+        if not timestamp_text or not timestamp_text.strip():
+            import uuid
+            parts.append(f"nots_{uuid.uuid4().hex[:8]}")
+        elif timestamp_text:
             ts = timestamp_text.lower().strip()
-            parts.append(ts)
-        
-        # Hash for fixed-length ID
+            now = datetime.now(timezone.utc)
+            date_bucket = None
+
+            # Extract post type for disambiguation
+            post_type = "photo"
+            if _re.search(r'\ba\s+video\b', ts):
+                post_type = "video"
+            elif _re.search(r'\ba\s+carousel\b', ts):
+                post_type = "carousel"
+            elif _re.search(r'\breel\b', ts):
+                post_type = "reel"
+            parts.append(post_type)
+
+            # Months → approximate (before minutes to avoid "3months" matching "3m")
+            m = _re.search(r'(\d+)\s*months?\s*(?:ago)?', ts)
+            if m:
+                date_bucket = (now - timedelta(days=int(m.group(1)) * 30)).strftime("%Y-%m-%d")
+
+            # Minutes → same day
+            if not date_bucket:
+                m = _re.search(r'(\d+)\s*m(?:in(?:utes?)?)?\s*(?:ago)?', ts)
+            if m:
+                date_bucket = now.strftime("%Y-%m-%d")
+
+            # Hours → compute date
+            if not date_bucket:
+                m = _re.search(r'(\d+)\s*h(?:ours?)?\s*(?:ago)?', ts)
+                if m:
+                    date_bucket = (now - timedelta(hours=int(m.group(1)))).strftime("%Y-%m-%d")
+
+            # Days
+            if not date_bucket:
+                m = _re.search(r'(\d+)\s*d(?:ays?)?\s*(?:ago)?', ts)
+                if m:
+                    date_bucket = (now - timedelta(days=int(m.group(1)))).strftime("%Y-%m-%d")
+
+            # Weeks
+            if not date_bucket:
+                m = _re.search(r'(\d+)\s*w(?:eeks?)?\s*(?:ago)?', ts)
+                if m:
+                    date_bucket = (now - timedelta(weeks=int(m.group(1)))).strftime("%Y-%m-%d")
+
+            # Absolute date ("February 9", "December 7, 2023")
+            if not date_bucket:
+                date_match = _re.search(
+                    r'(january|february|march|april|may|june|july|august|'
+                    r'september|october|november|december)\s+\d{1,2}(?:,?\s*\d{4})?', ts
+                )
+                if date_match:
+                    date_bucket = date_match.group(0)
+
+            # "just now" / "seconds ago"
+            if not date_bucket:
+                if "just now" in ts or "second" in ts:
+                    date_bucket = now.strftime("%Y-%m-%d")
+
+            if date_bucket:
+                parts.append(date_bucket)
+            else:
+                parts.append(ts)
+
         composite = "|".join(parts)
         hash_value = hashlib.sha256(composite.encode()).hexdigest()[:12]
-        
+
         return f"{author}_{hash_value}"
     
     # --- Post Interactions ---
@@ -612,6 +688,91 @@ class SyncAgentMemory:
         # Always return at least VIP accounts
         return result if result else [a for a in all_accounts if a.get("priority") == "vip"]
     
+    # --- Daily Comment Limits (MongoDB-backed, survives ContextVar loss) ---
+
+    def get_or_create_daily_comment_limit(
+        self, user_id: str, min_limit: int = 9, max_limit: int = 15,
+    ) -> int:
+        """Get today's comment limit, creating it if it doesn't exist.
+
+        Uses findOneAndUpdate with $setOnInsert + upsert for atomic
+        create-if-not-exists. Randomized once per UTC calendar day.
+        """
+        import random
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            result = self.db["daily_limits"].find_one_and_update(
+                {"user_id": user_id, "date": today},
+                {"$setOnInsert": {
+                    "comment_limit": random.randint(min_limit, max_limit),
+                    "created_at": datetime.now(timezone.utc),
+                }},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            return result["comment_limit"]
+        except PyMongoError as e:
+            logger.error(f"Error getting daily limit: {e}")
+            return min_limit
+
+    # --- Session Comment Budgets (MongoDB-backed) ---
+
+    def create_session_budget(
+        self, user_id: str, session_id: str, comments_limit: int,
+    ) -> dict:
+        """Create session budget doc (atomic upsert)."""
+        try:
+            result = self.db["session_budgets"].find_one_and_update(
+                {"user_id": user_id, "session_id": session_id},
+                {"$setOnInsert": {
+                    "comments_limit": comments_limit,
+                    "comments_done": 0,
+                    "created_at": datetime.now(timezone.utc),
+                }},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            return result
+        except PyMongoError as e:
+            logger.error(f"Error creating session budget: {e}")
+            return {"comments_limit": comments_limit, "comments_done": 0}
+
+    def increment_session_comments(self, user_id: str, session_id: str) -> dict:
+        """Atomically increment session comment count. Returns updated state."""
+        try:
+            result = self.db["session_budgets"].find_one_and_update(
+                {"user_id": user_id, "session_id": session_id},
+                {"$inc": {"comments_done": 1}},
+                return_document=ReturnDocument.AFTER,
+            )
+            if result:
+                return {
+                    "comments_done": result["comments_done"],
+                    "comments_limit": result["comments_limit"],
+                    "can_comment": result["comments_done"] < result["comments_limit"],
+                }
+            return {"comments_done": 0, "comments_limit": 3, "can_comment": False}
+        except PyMongoError as e:
+            logger.error(f"Error incrementing session comments: {e}")
+            return {"comments_done": 0, "comments_limit": 3, "can_comment": False}
+
+    def get_session_comment_budget(self, user_id: str, session_id: str) -> dict:
+        """Read current session comment budget."""
+        try:
+            doc = self.db["session_budgets"].find_one(
+                {"user_id": user_id, "session_id": session_id}
+            )
+            if doc:
+                return {
+                    "comments_done": doc.get("comments_done", 0),
+                    "comments_limit": doc.get("comments_limit", 5),
+                    "can_comment": doc["comments_done"] < doc["comments_limit"],
+                }
+            return {"comments_done": 0, "comments_limit": 5, "can_comment": True}
+        except PyMongoError:
+            return {"comments_done": 0, "comments_limit": 5, "can_comment": False}
+
     def close(self) -> None:
         """Close MongoDB connection."""
         self.client.close()

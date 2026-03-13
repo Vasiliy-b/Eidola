@@ -7,7 +7,6 @@ has content to post today, upload it to the device, and update status.
 import logging
 from datetime import date
 
-from ..config import load_device_config
 from .device_uploader import cleanup_device_posting_folder, upload_content_to_device
 from .models import PostingState, VariantStatus
 from .mongo_content import ContentStore
@@ -31,10 +30,17 @@ def has_pending_post(account_id: str, today: str | None = None) -> bool:
     sched = store.get_schedule_for_account(account_id, day)
     if not sched:
         return False
+    if sched.posting_state == PostingState.POSTED:
+        return False
     if sched.posting_state == PostingState.FAILED and sched.retry_count >= sched.max_retries:
         return False
-    # Include intermediate states (ON_DEVICE, UPLOADING) so content retries
-    # if agent crashed before calling report_posting_result
+    if sched.posting_state in (PostingState.ON_DEVICE, PostingState.UPLOADING):
+        if sched.retry_count >= 1:
+            logger.warning(
+                "Skipping re-upload for %s: state=%s but retry_count=%d >= 1",
+                account_id, sched.posting_state.value, sched.retry_count,
+            )
+            return False
     return sched.posting_state in (
         PostingState.SCHEDULED, PostingState.FAILED,
         PostingState.ON_DEVICE, PostingState.UPLOADING,
@@ -91,6 +97,10 @@ def prepare_device_for_posting(device, account_id: str, today: str | None = None
     store = get_store()
     sched = store.get_schedule_for_account(account_id, day)
     if not sched:
+        return None
+
+    if sched.posting_state == PostingState.POSTED:
+        logger.info("Already posted today for %s, skipping upload", account_id)
         return None
 
     content_item = store.get_content_item(sched.content_id)

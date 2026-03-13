@@ -179,7 +179,7 @@ KNOWN_DIALOGS: dict[DialogType, DialogConfig] = {
         indicators=["Collect the posts you love", "Start a collection", "Save posts in collections"],
         resource_id_patterns=["pinned_save_row", "bottom_sheet_container"],
         action=DialogActionType.DISMISS,
-        button_patterns=["background_dimmer"],  # Tap outside to dismiss
+        button_patterns=[],  # No text-based button; press_back dismisses bottom sheet
     ),
 }
 

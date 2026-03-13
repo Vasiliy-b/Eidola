@@ -72,7 +72,6 @@ FEED_TOOLS = {
 
 COMMENT_TOOLS = {
     "comment_on_post",
-    "post_comment",
     "get_caption_info",
     "get_visible_comments",
 }

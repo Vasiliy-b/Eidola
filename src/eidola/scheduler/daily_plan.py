@@ -218,7 +218,7 @@ class DailyPlanGenerator:
         self._weekday_archetypes: list[_Archetype] = []
         self._weekend_archetypes: list[_Archetype] = []
         self._energy_levels: dict[str, dict[str, float]] = {}
-        self._boosts: dict[str, Any] = {}
+        self._astro: dict[str, Any] = {}
 
         self._load()
 
@@ -241,7 +241,7 @@ class DailyPlanGenerator:
             self._raw.get("weekend_archetypes", [])
         )
         self._energy_levels = self._raw.get("energy_levels", {})
-        self._boosts = self._raw.get("boosts", self._raw.get("astro", {}))
+        self._astro = self._raw.get("astro", {})
 
         logger.info(
             "Loaded schedule v2: %d weekday / %d weekend archetypes",

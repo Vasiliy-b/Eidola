@@ -401,8 +401,21 @@ def switch_account_on_device(
             return {"success": True, "switched": True, "did_login": False}
         
         if result.get("need_login"):
+            device_cfg = load_device_config(device_id)
+            assigned = [a.lower() for a in device_cfg.accounts] if device_cfg else []
+            if assigned and target_account_id.lower() not in assigned:
+                print(
+                    f"  [{device_id}] ✗ Account @{target_username} ({target_account_id}) "
+                    f"is NOT assigned to {device_id} — blocking login. "
+                    f"Assigned: {device_cfg.accounts}"
+                )
+                _cleanup_instagram_state(dm)
+                return {
+                    "success": False,
+                    "error": f"{target_account_id} not assigned to {device_id}",
+                }
+
             print(f"  [{device_id}] Account @{target_username} not on device — need agent login")
-            # Navigate to login screen: tap "Add Instagram account" → "Log into existing"
             from eidola.tools.auth_tools import _navigate_to_login_screen
             nav_result = _navigate_to_login_screen()
             if not nav_result.get("success"):
@@ -642,9 +655,12 @@ async def device_loop(
 
             # ---- Pre-session: check for pending content to post ----
             posting_prepared = False
+            posting_date = None  # capture date for post-session reconciliation
             try:
                 from eidola.content.posting_scheduler import has_pending_post, prepare_device_for_posting
-                if has_pending_post(session_account):
+                from datetime import date as _date_mod
+                posting_date = _date_mod.today().isoformat()
+                if has_pending_post(session_account, today=posting_date):
                     print(f"  [{device_id}] 📦 Content pending for @{session_account} — uploading to device...")
                     from eidola.tools.firerpa_tools import DeviceManager as _PostDM
                     _post_dm = _PostDM.get(device_ip)
@@ -735,6 +751,37 @@ async def device_loop(
                     error=f"Exit code {ret}",
                 )
                 print(f"  [{device_id}] ✗ Failed: {next_session.label}{acct_tag} (exit {ret})")
+
+            # ---- Post-session: reconcile posting state ----
+            if posting_prepared and posting_date:
+                try:
+                    from eidola.content.posting_scheduler import (
+                        has_pending_post as _hpp,
+                        mark_posting_result as _mpr,
+                    )
+                    if _hpp(session_account, today=posting_date):
+                        print(f"  [{device_id}] ⚠ Post still pending after session — agent did not report. Marking FAILED.")
+                        from eidola.content.posting_scheduler import get_store as _gs
+                        _sched = _gs().get_schedule_for_account(session_account, posting_date)
+                        if _sched:
+                            _mpr(
+                                account_id=session_account,
+                                content_id=_sched.content_id,
+                                success=False,
+                                error="Agent session ended without calling report_posting_result",
+                                today=posting_date,
+                            )
+                    # Always clean device posting folder after a posting session
+                    from eidola.tools.firerpa_tools import DeviceManager as _CleanDM
+                    _clean_dm = _CleanDM.get(device_ip)
+                    if _clean_dm:
+                        try:
+                            _clean_dm.device.execute_script("rm -rf /sdcard/DCIM/ToPost/*")
+                            print(f"  [{device_id}] 🧹 Cleaned device posting folder")
+                        except Exception:
+                            pass
+                except Exception as e:
+                    print(f"  [{device_id}] Post-session reconciliation error: {e}")
 
             # Small buffer between sessions (30-120 seconds of human hesitation)
             if not shutdown_event.is_set():

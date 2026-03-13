@@ -40,6 +40,7 @@ class MemoryContext:
     account_id: str
     instagram_username: str
     device_id: str | None = None
+    session_id: str | None = None
 
 
 # ContextVar holds per-context state (async-safe, thread-safe)
@@ -47,22 +48,21 @@ _memory_context: ContextVar[MemoryContext | None] = ContextVar(
     "memory_context", default=None
 )
 
-# 24-hour rolling comment limit (randomized per day, enforced via MongoDB)
-# Range: 12-23 comments per 24h, picked once per session to avoid predictable patterns.
-_daily_comment_limit: ContextVar[int | None] = ContextVar(
-    "daily_comment_limit", default=None
-)
-
+# Module-level fallback for username (survives ContextVar loss in async/threads)
+_username_fallback: dict[str, str] = {}
 
 def _get_daily_comment_limit() -> int:
-    """Get or generate the daily comment limit (12-23, once per session)."""
-    import random
-    limit = _daily_comment_limit.get(None)
-    if limit is None:
-        limit = random.randint(14, 21)
-        _daily_comment_limit.set(limit)
-        logger.info(f"Daily comment limit set to {limit} (range 14-21)")
-    return limit
+    """Get today's comment limit from MongoDB (stable per calendar day).
+
+    The limit is randomized once per UTC calendar day via atomic
+    findOneAndUpdate($setOnInsert) — immune to ContextVar context loss
+    that occurs between ADK tool invocations.
+    """
+    result = _ensure_memory()
+    if isinstance(result, dict):
+        return 9  # Fail-safe: use minimum
+    memory, account_id = result
+    return memory.get_or_create_daily_comment_limit(account_id)
 
 # Session-level comment dedup (in-memory, fast, no DB round-trip)
 # Populated by record_post_interaction(action="comment"), checked by check_post_interaction()
@@ -97,6 +97,7 @@ def set_memory(
     account_id: str,
     instagram_username: str | None = None,
     device_id: str | None = None,
+    session_id: str | None = None,
 ) -> None:
     """
     Initialize memory for this session.
@@ -108,22 +109,46 @@ def set_memory(
         memory: SyncAgentMemory instance
         account_id: Internal account identifier
         instagram_username: Our Instagram @username (for visual comment detection)
+        device_id: Optional device identifier
+        session_id: Unique session identifier (auto-generated if not provided)
     """
+    import random
+    import uuid
+    from ..config import get_settings
+
+    cfg = get_settings()
+    sid = session_id or str(uuid.uuid4())
+
     ctx = MemoryContext(
         memory=memory,
         account_id=account_id,
         instagram_username=instagram_username or account_id,
         device_id=device_id,
+        session_id=sid,
     )
     _memory_context.set(ctx)
     _session_commented_posts.set(set())
     _session_comment_texts.set([])
-    _daily_comment_limit.set(None)
-    _session_visited_nurtured.set(None)
+    _session_visited_nurtured.set(set())
+
+    _username_fallback["username"] = instagram_username or account_id
+    _username_fallback["account_id"] = account_id
+
+    # Create session comment budget in MongoDB (survives ContextVar loss)
+    comments_limit = random.randint(
+        cfg.session_comments_limit_min,
+        cfg.session_comments_limit_max,
+    )
+    memory.create_session_budget(account_id, sid, comments_limit)
+
+    # Fetch the daily comment limit (creates in MongoDB if first call today)
+    daily_limit = memory.get_or_create_daily_comment_limit(account_id)
+
     logger.info(
         f"Memory tools initialized: account={account_id}, "
-        f"instagram_username={ctx.instagram_username}, "
-        f"device_id={ctx.device_id or 'n/a'}"
+        f"instagram_username={instagram_username or account_id}, "
+        f"device_id={device_id or 'n/a'}, session_id={sid}, "
+        f"session_comments_limit={comments_limit}, daily_limit={daily_limit}"
     )
 
 
@@ -391,27 +416,11 @@ def record_post_interaction(
         timestamp_text=timestamp_text,
     )
     
-    # ⚠️ COMMENT LIMIT GUARD: 24-hour rolling limit via MongoDB
+    # Duplicate guards for comments (recording should always succeed
+    # after a comment is on Instagram — blocking recording creates
+    # invisible comments that don't count against budget).
     if action == "comment":
-        count_24h = memory.get_comment_count_24h(account_id)
-        max_24h = _get_daily_comment_limit()
-
-        if count_24h >= max_24h:
-            logger.warning(
-                f"24H COMMENT LIMIT REACHED: {count_24h}/{max_24h} comments in last 24h. "
-                f"Blocking comment on {generated_post_id}."
-            )
-            return {
-                "recorded": False,
-                "post_id": generated_post_id,
-                "action": action,
-                "error": f"24H COMMENT LIMIT: {count_24h}/{max_24h} comments in last 24 hours. No more comments allowed!",
-                "blocked_by": "mongodb_24h_guard",
-                "comments_24h": count_24h,
-                "max_24h": max_24h,
-            }
-        
-        # ⚠️ DUPLICATE CHECK Layer 1: Fast session-level check
+        # DUPLICATE CHECK Layer 1: Fast session-level check
         session_set = _session_commented_posts.get()
         if session_set and generated_post_id in session_set:
             logger.warning(
@@ -564,12 +573,12 @@ def get_24h_comment_count() -> dict:
     """
     Check how many comments were made in the last 24 hours.
     
-    The system enforces a randomized daily limit (12-23 comments per 24h rolling window)
-    across ALL sessions. Call this BEFORE commenting to check remaining budget.
+    The system enforces a randomized daily limit (9-15 comments per 24h rolling window)
+    across ALL sessions. The limit is stored in MongoDB, stable per calendar day.
     
     Returns:
         - count: Comments made in last 24 hours
-        - limit: Today's randomized limit (12-23)
+        - limit: Today's randomized limit (9-15, frozen in MongoDB)
         - can_comment: True if under the limit
         - remaining: How many more comments allowed
     """
@@ -601,7 +610,7 @@ def get_24h_comment_count() -> dict:
     except Exception as e:
         logger.error(f"Error checking 24h comment count: {e}")
         return {
-            "count": 0,
+            "count": 999,
             "limit": daily_limit,
             "can_comment": False,
             "remaining": 0,

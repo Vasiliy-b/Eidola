@@ -117,10 +117,16 @@ class ContentStore:
             update["error"] = error
         if status_str == "posted":
             update["posted_at"] = datetime.now(timezone.utc)
-        self.variants.update_one(
+        result = self.variants.update_one(
             {"content_id": content_id, "account_id": account_id},
             {"$set": update},
         )
+        if result.matched_count == 0:
+            logger.critical(
+                "update_variant_status matched 0 docs! content_id=%s account_id=%s — "
+                "possible hallucinated ID from agent",
+                content_id, account_id,
+            )
 
     def get_pending_variants(self, content_id: str) -> list[ContentVariant]:
         docs = self.variants.find({
@@ -166,10 +172,16 @@ class ContentStore:
             update["retry_count"] = (doc.get("retry_count", 0) + 1) if doc else 1
         if state_str == "posted":
             update["completed_at"] = datetime.now(timezone.utc)
-        self.schedules.update_one(
+        result = self.schedules.update_one(
             {"date": date, "account_id": account_id, "content_id": content_id},
             {"$set": update},
         )
+        if result.matched_count == 0:
+            logger.critical(
+                "update_posting_state matched 0 docs! date=%s account_id=%s "
+                "content_id=%s state=%s — possible hallucinated ID from agent",
+                date, account_id, content_id, state_str,
+            )
 
     def get_todays_pending_posts(self, date: str) -> list[ContentSchedule]:
         docs = self.schedules.find({

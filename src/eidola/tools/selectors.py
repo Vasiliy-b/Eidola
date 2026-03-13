@@ -59,6 +59,14 @@ INSTAGRAM_SELECTORS: dict[str, ElementSelector] = {
             {"descriptionContains": "Search"},
         ],
     },
+    "create_button": {
+        "primary": {"resourceId": "com.instagram.android:id/action_bar_buttons_container_left"},
+        "fallbacks": [
+            {"description": "New post"},
+            {"descriptionContains": "Create"},
+            {"resourceId": "com.instagram.android:id/creation_tab"},
+        ],
+    },
     "reels_tab": {
         "primary": {"resourceId": "com.instagram.android:id/clips_tab"},
         "fallbacks": [

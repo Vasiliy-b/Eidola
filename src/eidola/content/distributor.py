@@ -53,7 +53,7 @@ def distribute_content(
     Returns:
         Number of schedule entries created.
     """
-    start = start_date or (date.today() + timedelta(days=1))
+    start = start_date or date.today()
 
     if content_ids:
         items = [store.get_content_item(cid) for cid in content_ids]

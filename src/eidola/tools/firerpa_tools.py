@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from contextvars import ContextVar
 
@@ -381,15 +381,16 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# gRPC keepalive patch for lamda.client.Device
+# gRPC keepalive patch (channel-level, version-agnostic)
 # =============================================================================
 # lamda creates gRPC channels with no options at all, inheriting the C-core
 # default keepalive (30 s ping interval).  When multiple channels exist to the
 # same FIRERPA server (e.g. scheduler + subprocess), the server replies with
 # GOAWAY / ENHANCE_YOUR_CALM / too_many_pings.
 #
-# We monkey-patch Device.__init__ *once* so every new channel gets sane
-# keepalive settings.
+# Instead of patching lamda's Device.__init__ (which varies across versions),
+# we patch grpc.insecure_channel / grpc.secure_channel to merge in keepalive
+# options.  This is version-agnostic and doesn't touch lamda internals.
 
 _GRPC_CHANNEL_OPTIONS = [
     ("grpc.keepalive_time_ms", 120_000),
@@ -399,55 +400,37 @@ _GRPC_CHANNEL_OPTIONS = [
     ("grpc.http2.min_ping_interval_without_data_ms", 300_000),
 ]
 
-_lamda_device_patched = False
+_grpc_patched = False
 
 
-def _patch_lamda_device_grpc_options() -> None:
-    """Patch lamda.client.Device to pass keepalive options to gRPC channels."""
-    global _lamda_device_patched
-    if _lamda_device_patched:
+def _patch_grpc_channel_keepalive() -> None:
+    """Patch grpc channel constructors to always include keepalive options."""
+    global _grpc_patched
+    if _grpc_patched:
         return
     try:
         import grpc as _grpc
-        from lamda import client as _lamda_client
 
-        def _patched_init(self, host, port=65000, certificate=None):
-            self.certificate = certificate
-            self.server = "{0}:{1}".format(host, port)
-            if certificate is not None:
-                with open(certificate, "rb") as fd:
-                    cer = fd.read()
-                creds = _grpc.ssl_channel_credentials(cer)
-                base_opts = [
-                    ("grpc.ssl_target_name_override",
-                     self._ssl_common_name(cer)),
-                    ("grpc.enable_http_proxy", False),
-                ]
-                chann = _grpc.secure_channel(
-                    self.server, creds,
-                    options=base_opts + _GRPC_CHANNEL_OPTIONS,
-                )
-            else:
-                chann = _grpc.insecure_channel(
-                    self.server,
-                    options=_GRPC_CHANNEL_OPTIONS,
-                )
-            interceptors = [
-                _lamda_client.ClientSessionMetadataInterceptor(),
-                _lamda_client.GrpcRemoteExceptionInterceptor(),
-                _lamda_client.ClientLoggingInterceptor(),
-            ]
-            self.chann = _grpc.intercept_channel(chann, *interceptors)
+        _orig_insecure = _grpc.insecure_channel
+        _orig_secure = _grpc.secure_channel
 
-        _lamda_client.Device.__init__ = _patched_init
-        _lamda_device_patched = True
-        logger.info("Patched lamda.client.Device with gRPC keepalive options")
+        def _insecure_with_keepalive(target, options=None, **kwargs):
+            merged = list(options or []) + _GRPC_CHANNEL_OPTIONS
+            return _orig_insecure(target, options=merged, **kwargs)
+
+        def _secure_with_keepalive(target, credentials, options=None, **kwargs):
+            merged = list(options or []) + _GRPC_CHANNEL_OPTIONS
+            return _orig_secure(target, credentials, options=merged, **kwargs)
+
+        _grpc.insecure_channel = _insecure_with_keepalive
+        _grpc.secure_channel = _secure_with_keepalive
+        _grpc_patched = True
+        logger.info("Patched grpc.insecure_channel/secure_channel with keepalive options")
     except Exception as exc:
-        logger.warning(f"Could not patch lamda Device gRPC options: {exc}")
+        logger.warning(f"Could not patch gRPC keepalive options: {exc}")
 
 
-# Apply patch at import time so every Device() created in this process benefits.
-_patch_lamda_device_grpc_options()
+_patch_grpc_channel_keepalive()
 
 
 # =============================================================================
@@ -881,6 +864,16 @@ def get_device_manager() -> DeviceManager | None:
         Current DeviceManager or None if no device is connected.
     """
     return DeviceManager.get_current()
+
+
+# Stored reference to the type_text closure from create_firerpa_tools.
+# Used by posting_tools.type_posting_caption() to type captions reliably.
+_type_text_ref: Callable | None = None
+
+
+def get_type_text_fn():
+    """Get the type_text function created by create_firerpa_tools."""
+    return _type_text_ref
 
 
 # =============================================================================
@@ -3533,9 +3526,12 @@ def create_firerpa_tools(device_ip: str) -> list[FunctionTool]:
                 y_center = (bounds[1] + bounds[3]) // 2
                 
                 # CRITICAL: Detect Ad/Sponsored labels
-                # Instagram shows "Ad" or "Sponsored" near the username for ads
-                if text in ("ad", "sponsored", "paid partnership") or \
-                   content_desc in ("ad", "sponsored", "paid partnership"):
+                # Instagram shows "Ad", "Sponsored", or "Paid partnership" near
+                # the username.  Use substring match — some locales/layouts
+                # render "Sponsored · Brand" or "Paid partnership with @brand".
+                if text in ("ad", "sponsored") or \
+                   "sponsored" in text or "paid partnership" in text or \
+                   "sponsored" in content_desc or "paid partnership" in content_desc:
                     ad_label_positions.append(y_center)
         
         # Second pass: collect all elements
@@ -3559,13 +3555,19 @@ def create_firerpa_tools(device_ip: str) -> list[FunctionTool]:
                 else:
                     continue
                 
-                # Check for sponsored in header text
-                is_sponsored = "sponsored" in content_desc.lower() or "sponsored" in text.lower()
+                # Check for sponsored in header text (substring match)
+                _cd_lower = content_desc.lower()
+                _tx_lower = text.lower()
+                is_sponsored = (
+                    "sponsored" in _cd_lower or "sponsored" in _tx_lower
+                    or "paid partnership" in _cd_lower or "paid partnership" in _tx_lower
+                )
                 
-                # Also check if there's an "Ad" label near this header (within 150px)
+                # Also check if there's an "Ad"/"Sponsored" label near this
+                # header (within 250px vertically)
                 if not is_sponsored:
                     for ad_y in ad_label_positions:
-                        if abs(y_center - ad_y) < 150:  # Ad label within 150px of header
+                        if abs(y_center - ad_y) < 250:
                             is_sponsored = True
                             break
                 
@@ -3575,6 +3577,13 @@ def create_firerpa_tools(device_ip: str) -> list[FunctionTool]:
                     parts = content_desc.split()
                     if len(parts) >= 3:
                         timestamp = " ".join(parts[2:])  # "2h" or "January 25"
+                
+                # Heuristic: ads often have no timestamp in header
+                if not is_sponsored and not timestamp:
+                    for ad_y in ad_label_positions:
+                        if abs(y_center - ad_y) < 400:
+                            is_sponsored = True
+                            break
                 
                 if username:
                     post_headers.append((username, bounds[1], bounds[3], y_center, timestamp, is_sponsored))
@@ -4247,6 +4256,23 @@ def create_firerpa_tools(device_ip: str) -> list[FunctionTool]:
         """
         # Local logger ref to avoid closure scoping issues
         _log = logging.getLogger("eidola.tools")
+
+        # --- Posting safety guard ---
+        from ..tools.posting_tools import _last_manifest, _caption_looks_suspicious
+        if _last_manifest is not None:
+            manifest_caption = _last_manifest.get("caption", "")
+            if not manifest_caption or not manifest_caption.strip():
+                _log.warning("type_text BLOCKED during posting: manifest caption is empty, skip caption step")
+                return {"typed": False, "blocked": True, "reason": "Manifest caption is empty — do not type a caption. Skip to Share."}
+            if _caption_looks_suspicious(text):
+                _log.critical("type_text BLOCKED suspicious caption during posting: %r", text)
+                return {"typed": False, "blocked": True, "reason": "Text blocked by safety filter. Interpret the manifest caption creatively instead."}
+            # Detect repetition loops (e.g. "🏰🏰🏰🏰🏰..." or "hahahahaha...")
+            import re as _re
+            if _re.search(r'(.)\1{4,}', text) or _re.search(r'(.{1,4})\1{3,}', text):
+                _log.warning("type_text BLOCKED: repetition loop detected in caption: %r", text[:80])
+                return {"typed": False, "blocked": True, "reason": "Repetition loop detected in caption. Write a natural caption without repeating characters or emojis."}
+
         from lamda.client import Keys
         from lamda.exceptions import UiObjectNotFoundException
         
@@ -5114,42 +5140,27 @@ def create_firerpa_tools(device_ip: str) -> list[FunctionTool]:
             
             visible_str = "\n".join(f"- {c}" for c in visible_comments[:5]) if visible_comments else "(none visible)"
             recent_str = "\n".join(f"- {c}" for c in recent_own_comments[:7]) if recent_own_comments else "(none yet)"
-            
-            prompt = f"""You are commenting on an Instagram post. Look at the IMAGE carefully and read the CAPTION.
 
-Caption: {caption_text or '(no caption visible)'}
-Author: @{author_username} | VIP: {is_nurtured}
+            prompt = f"""Caption: {caption_text or '(no caption)'}
 
-Existing comments:
+Comments on this post:
 {visible_str}
 
-My recent comments (DO NOT REPEAT):
+My recent comments (don't repeat):
 {recent_str}
 
-TASK: Write ONE short Instagram comment (1-6 words, optionally with 1-2 emojis).
+Write ONE Instagram comment. React to the specific thing in the image or caption that caught your eye. Your comment should only make sense on THIS post — if it could work on any photo, discard it.
 
-HOW TO WRITE A GOOD COMMENT:
-1. LOOK at the image: what specific thing do you see? (a cat, sunset, coffee, outfit detail, etc.)
-2. READ the caption: what is the author saying/feeling/asking?
-3. READ existing comments: don't repeat what others said
-4. React to a SPECIFIC detail — not generic praise
-5. Write as if texting a friend: lowercase, casual, genuine reaction
+Sound like a real person texting a friend about what they just saw. Keep it short. Max 15 words. 0-2 emoji.
+{extra_instruction}
 
-SPECIFICITY TEST: Would this comment fit 50 random posts? If YES → too generic, pick something more specific from THIS post.
+BANNED (instant bot flag):
+love this, amazing, beautiful, gorgeous, stunning, goals, vibes, queen, king, slay, obsessed, iconic, fire, perfect, incredible, wonderful, great post, so true
 
-BANNED phrases: love this, amazing, beautiful, gorgeous, stunning, goals, vibes, queen, king, slay, obsessed, so true, iconic, great post, fire, perfect, incredible, wonderful
-BANNED solo emojis: 💯 🔥 😍 ❤️ 👏 🙌 ✨ 💀
+If the screenshot shows a different user than @{author_username} → WRONG_POST
+If no image and no caption → SKIP
 
-EXAMPLES of good comments (DO NOT copy these):
-- "the lighting on this 🤌" (specific to photo quality)
-- "wait is that a corgi" (specific to image content)
-- "mondays really do that tho" (specific to caption topic)
-- "need this recipe asap" (specific to food post)
-{f'- {extra_instruction}' if extra_instruction else ''}
-
-If no image AND no meaningful caption → output: SKIP
-
-Output ONLY the comment text, nothing else."""
+Output ONLY the comment. No quotes, no labels."""
 
             parts.append(types.Part(text=prompt))
             
@@ -5172,7 +5183,6 @@ Output ONLY the comment text, nothing else."""
                 contents=[types.Content(role="user", parts=parts)],
                 config=types.GenerateContentConfig(
                     temperature=1.0,
-                    max_output_tokens=50,
                 ),
             )
             
@@ -5229,6 +5239,24 @@ Output ONLY the comment text, nothing else."""
         # =============================================================
         _log.info(f"comment_on_post: START @{author_username} ({timestamp_text})")
         
+        # 0-pre: Self-comment guard — never comment on our own posts
+        try:
+            from .memory_tools import _memory_context
+            _ctx = _memory_context.get()
+            if _ctx:
+                own_username = _ctx.instagram_username.lower().strip().lstrip("@")
+                target = author_username.lower().strip().lstrip("@")
+                if own_username == target:
+                    stages.append("guard:self_post")
+                    _log.info(f"comment_on_post: SKIP — @{author_username} is our own account")
+                    return {
+                        "posted": False, "skipped": True,
+                        "skip_reason": f"Cannot comment on your own post (@{author_username})",
+                        "stages": stages, "elapsed_ms": _elapsed(),
+                    }
+        except Exception:
+            pass
+
         # 0a: Nurtured account check (fail-safe — agent should only call for VIP)
         try:
             from .memory_tools import is_nurtured_account
@@ -5288,6 +5316,31 @@ Output ONLY the comment text, nothing else."""
                 "stages": stages, "elapsed_ms": _elapsed(),
             }
         
+        # 0c: Session comment budget (MongoDB-backed, survives ContextVar loss)
+        try:
+            from .memory_tools import get_memory_context
+            _ctx = get_memory_context()
+            if _ctx and _ctx.session_id:
+                _sess_budget = _ctx.memory.get_session_comment_budget(
+                    _ctx.account_id, _ctx.session_id
+                )
+                if not _sess_budget.get("can_comment", True):
+                    stages.append("guard:session_limit")
+                    _log.info(
+                        f"comment_on_post: SKIP — session limit "
+                        f"({_sess_budget['comments_done']}/{_sess_budget['comments_limit']})"
+                    )
+                    return {
+                        "posted": False, "skipped": True,
+                        "skip_reason": (
+                            f"Session comment limit reached: "
+                            f"{_sess_budget['comments_done']}/{_sess_budget['comments_limit']}"
+                        ),
+                        "stages": stages, "elapsed_ms": _elapsed(),
+                    }
+        except Exception as e:
+            _log.warning(f"comment_on_post: Session budget check failed: {e}")
+        
         stages.append("guard:passed")
         
         # =============================================================
@@ -5320,22 +5373,34 @@ Output ONLY the comment text, nothing else."""
             _log.warning(f"comment_on_post: Caption failed: {e}")
             stages.append("gather:caption_failed")
         
-        # 1c: Open comments section so we can see existing comments
-        _COMMENT_BTN_ID = "com.instagram.android:id/row_feed_button_comment"
+        # 1c: Open comments section so we can see existing comments (SPATIAL VERIFICATION)
         comments_opened = False
         try:
-            comment_btn = dm.device(resourceId=_COMMENT_BTN_ID)
-            if not comment_btn.exists():
-                comment_btn = dm.device(descriptionContains="Comment")
-            if not comment_btn.exists():
-                comment_btn = dm.device(textContains="Add a comment")
-            if comment_btn.exists():
-                comment_btn.click()
+            buttons = get_post_engagement_buttons(author_username)
+            if not buttons.get("found"):
+                stages.append("gather:post_not_visible")
+                _log.warning(
+                    f"comment_on_post: Post @{author_username} not visible — {buttons.get('error', 'unknown')}. "
+                    "Agent should scroll_feed() to bring post into view."
+                )
+                return {
+                    "posted": False,
+                    "skipped": True,
+                    "skip_reason": buttons.get("error", "Post not visible on screen"),
+                    "note": "Scroll feed to bring target post into view, then retry",
+                    "visible_users": buttons.get("visible_users", []),
+                    "stages": stages,
+                    "elapsed_ms": _elapsed(),
+                }
+            comment_btn_coords = buttons.get("comment_button")
+            if comment_btn_coords:
+                from lamda.client import Point as _P
+                dm.device.click(_P(x=comment_btn_coords["x"], y=comment_btn_coords["y"]))
                 dm.invalidate_xml_cache()
-                time.sleep(1.5)
+                time.sleep(2.5)
                 comments_opened = True
                 stages.append("opened_comments_for_dedup")
-                _log.info("comment_on_post: Opened comments section for visual dedup")
+                _log.info("comment_on_post: Opened comments section for visual dedup (spatial-verified)")
             else:
                 stages.append("comment_btn_not_found")
                 _log.debug("comment_on_post: Comment button not found — visual dedup will have limited data")
@@ -5351,6 +5416,8 @@ Output ONLY the comment text, nothing else."""
                 visible_comments_raw = vc.get("comments", [])
                 visible_comments = [c.get("text", "") for c in visible_comments_raw]
             stages.append(f"gather:visible({len(visible_comments)})")
+            if comments_opened and not visible_comments_raw:
+                _log.warning("comment_on_post: comments_opened=True but 0 visible comments — screen may not have loaded")
         except Exception as e:
             _log.debug(f"comment_on_post: Visible comments failed: {e}")
             stages.append("gather:visible_failed")
@@ -5359,6 +5426,10 @@ Output ONLY the comment text, nothing else."""
         try:
             from .memory_tools import get_instagram_username
             our_username = get_instagram_username()
+            if not our_username:
+                _log.warning("comment_on_post: VISUAL DEDUP — get_instagram_username() returned None, trying module fallback")
+                from .memory_tools import _username_fallback
+                our_username = _username_fallback.get("username")
             if our_username and visible_comments_raw:
                 our_clean = our_username.lower().strip().lstrip("@")
                 for c in visible_comments_raw:
@@ -5375,8 +5446,10 @@ Output ONLY the comment text, nothing else."""
                             "our_visible_comment": c.get("text", ""),
                             "stages": stages, "elapsed_ms": _elapsed(),
                         }
+            elif not our_username:
+                _log.warning("comment_on_post: VISUAL DEDUP FULLY SKIPPED — no username available")
         except Exception as e:
-            _log.debug(f"comment_on_post: Visual dedup check failed: {e}")
+            _log.warning(f"comment_on_post: Visual dedup check failed: {e}")
         
         # 1f: Recent own comments (DB + session)
         recent_own: list[str] = []
@@ -5435,6 +5508,15 @@ Output ONLY the comment text, nothing else."""
                 recent_own_comments=recent_own,
                 is_nurtured=is_nurtured,
             )
+            
+            if comment_text and comment_text.strip().upper() == "WRONG_POST":
+                stages.append("generate:wrong_post")
+                _log.warning(f"comment_on_post: WRONG_POST — screenshot shows different post than @{author_username}")
+                return {
+                    "posted": False, "skipped": True,
+                    "skip_reason": f"Visual verification: screenshot shows different post than @{author_username}",
+                    "stages": stages, "elapsed_ms": _elapsed(),
+                }
             
             if not comment_text or comment_text.strip().upper() == "SKIP":
                 stages.append("generate:ai_skip")
@@ -5508,6 +5590,13 @@ Output ONLY the comment text, nothing else."""
                     is_nurtured=is_nurtured,
                     extra_instruction=f"AVOID: '{comment_text}' — rejected ({reject_reason}). Write completely different.",
                 )
+                if comment_text and comment_text.strip().upper() == "WRONG_POST":
+                    stages.append("validate:wrong_post_on_retry")
+                    return {
+                        "posted": False, "skipped": True,
+                        "skip_reason": f"Visual verification: screenshot shows different post than @{author_username}",
+                        "stages": stages, "elapsed_ms": _elapsed(),
+                    }
                 if not comment_text or comment_text.strip().upper() == "SKIP":
                     return {
                         "posted": False, "skipped": True,
@@ -5569,6 +5658,15 @@ Output ONLY the comment text, nothing else."""
             _log.warning(f"comment_on_post: Recording failed: {e}")
             stages.append("record:error")
         
+        # Increment session comment counter (MongoDB-backed)
+        try:
+            from .memory_tools import get_memory_context
+            _ctx = get_memory_context()
+            if _ctx and _ctx.session_id:
+                _ctx.memory.increment_session_comments(_ctx.account_id, _ctx.session_id)
+        except Exception as e:
+            _log.warning(f"comment_on_post: Session counter increment failed: {e}")
+        
         elapsed = _elapsed()
         _log.info(f"comment_on_post: ✅ SUCCESS '{comment_text}' on @{author_username} in {elapsed}ms")
         
@@ -5629,8 +5727,14 @@ Output ONLY the comment text, nothing else."""
                 return {"saved": False, "error": "Save button bounds missing"}
         
         dm.invalidate_xml_cache()
-        time.sleep(0.3)
-        
+        time.sleep(random.uniform(0.8, 1.4))
+
+        # Dismiss "Save to collection" bottom sheet that Instagram shows after tapping save.
+        from lamda.client import Keys as _Keys
+        dm.device.press_key(_Keys.KEY_BACK)
+        dm.invalidate_xml_cache()
+        time.sleep(random.uniform(0.2, 0.5))
+
         verify = is_post_saved(target_username)
         return {
             "saved": verify.get("is_saved", False),
@@ -6019,7 +6123,7 @@ Output ONLY the comment text, nothing else."""
         # Text & Comments
         FunctionTool(type_text),
         FunctionTool(clear_text),
-        FunctionTool(post_comment),  # UI automation: type + post (used internally by comment_on_post)
+        # post_comment is INTERNAL ONLY — called by comment_on_post with _skip_guards=True
         FunctionTool(comment_on_post),  # 🎯 ORCHESTRATOR: analyze + generate + post + record in 1 call
         
         # Element interaction
@@ -6031,6 +6135,9 @@ Output ONLY the comment text, nothing else."""
         FunctionTool(device_info),
         FunctionTool(check_connection),
     ]
+
+    global _type_text_ref
+    _type_text_ref = type_text
 
 
 # =============================================================================
