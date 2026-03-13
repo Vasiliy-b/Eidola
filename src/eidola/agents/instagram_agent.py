@@ -254,7 +254,7 @@ def build_mode_instruction(mode: str, config: dict[str, Any]) -> str:
 **CTA is MANDATORY** for nurtured accounts:
 - Post: "Comment 🔥 if you agree" → Your comment: `🔥`
 - Post: "Type YES for more" → Your comment: `YES`
-- Post: "Drop MOON below" → Your comment: `MOON`
+- Post: "Drop FIRE below" → Your comment: `FIRE`
 
 **No CTA?** React like a real person — emojis, short reactions, whatever feels natural.
 """,
