@@ -1,0 +1,20 @@
+# Persona Configuration
+# Personality traits that influence scheduling and engagement behavior.
+# Customize these to match your desired bot personality.
+#
+# These traits affect:
+# - Session timing preferences (morning vs evening person)
+# - Engagement style (social vs reserved)
+# - Content preferences
+
+personality:
+  social_tendency: high       # How social/interactive the persona is
+  aesthetic_sensitivity: high  # How drawn to visual/aesthetic content
+  evening_energy: high         # Activity level in evening hours
+  routine_flexibility: medium  # How variable the daily pattern is
+  content_interests:
+    - photography
+    - travel
+    - food
+    - fashion
+    - wellness

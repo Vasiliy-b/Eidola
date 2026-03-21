@@ -1,0 +1,52 @@
+# =============================================================================
+# MODE: Login
+# =============================================================================
+# Configuration for Instagram login flow with 2FA support.
+# This mode is used when the agent needs to authenticate.
+
+mode: login
+description: "Login to Instagram with 2FA authentication"
+
+# Model configuration
+model: gemini-3-flash-preview
+temperature: 1.0
+
+# Login-specific settings
+login:
+  # Maximum login attempts before failing
+  max_attempts: 3
+  
+  # Delay between login attempts (seconds)
+  retry_delay: 5
+  
+  # Wait time after entering credentials (ms)
+  wait_after_credentials: 3000
+  
+  # Wait time after entering 2FA code (ms)
+  wait_after_2fa: 3000
+
+# 2FA settings
+two_factor:
+  # Minimum seconds remaining on code before regenerating
+  min_valid_seconds: 5
+  
+  # Delay before tapping Continue after typing code (ms)
+  button_enable_delay: 1500
+  
+  # Maximum 2FA code entry attempts
+  max_code_attempts: 3
+
+# Error handling
+errors:
+  # Actions for different error types
+  wrong_password: "abort"  # abort | retry
+  invalid_code: "retry"
+  challenge_screen: "abort"
+  rate_limited: "wait"  # wait N minutes then retry
+  rate_limit_wait_minutes: 5
+
+# Not used in login mode
+engagement_rates:
+  like: 0.0
+  comment: 0.0
+  save: 0.0

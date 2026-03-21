@@ -1,0 +1,53 @@
+# =============================================================================
+# RESPOND MODE - Reply to Interactions
+# =============================================================================
+# Handle notifications, reply to comments, respond to DMs
+
+mode: respond
+description: "Ответы на комменты и DM"
+
+# LLM Settings
+model: gemini-3-flash-preview  # Smart model for meaningful responses
+temperature: 1.0  # Google Gemini 3 recommended (Jan 2026)
+
+# What to Check
+check_notifications: true
+check_dms: true
+check_comments: true  # Comments on your posts
+check_mentions: true  # Posts that mention you
+
+# Response Behavior
+respond_to_comments: true
+respond_to_mentions: true
+respond_to_dms: true
+
+# Limits
+max_responses: 10  # Per session
+max_dm_responses: 5
+
+# Response Style
+response_style: friendly
+response_rules:
+  max_words: 10  # Responses can be slightly longer
+  max_emojis: 2
+  be_conversational: true
+  avoid_generic: true  # Don't just say "thanks!"
+
+# DM Response Style
+dm_rules:
+  be_helpful: true
+  keep_short: true
+  can_ask_questions: true  # Continue conversations naturally
+
+# Comment Response Style
+comment_reply_rules:
+  acknowledge_compliments: true
+  answer_questions: true
+  be_warm: true
+
+# Notification Handling
+notification_priorities:
+  - mentions  # Someone mentioned you
+  - comment_replies  # Someone replied to your comment
+  - likes  # Just acknowledge, don't respond
+  - follows  # Maybe check their profile

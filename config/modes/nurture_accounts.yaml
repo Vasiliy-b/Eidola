@@ -1,0 +1,55 @@
+# =============================================================================
+# NURTURE ACCOUNTS MODE - VIP Engagement
+# =============================================================================
+# Focused engagement with important/nurtured accounts
+
+mode: nurture_accounts
+description: "Целенаправленная работа с важными аккаунтами"
+
+# LLM Settings
+model: gemini-3-flash-preview  # Smart model for thoughtful comments
+temperature: 1.0  # Google Gemini 3 recommended (Jan 2026)
+
+# Engagement Probabilities (very high for nurtured accounts)
+engagement_rates:
+  like: 0.95      # Almost always like
+  comment: 0.70   # 70% get comments
+  save: 0.60      # 60% get saved
+  share: 0.15     # 15% get shared
+
+# Nurtured Account Boost (N/A - this mode IS for nurtured accounts)
+nurtured_boost: 1.0
+
+# Profile Visiting
+visit_profiles: true
+posts_per_account: [2, 5]  # Engage with 2-5 posts per account
+accounts_to_visit: [3, 8]  # Visit 3-8 accounts per session
+
+# Comment Style
+comment_rules:
+  cta_priority: true  # ALWAYS follow CTA for nurtured accounts (MANDATORY)
+  natural_style: true  # No word limits — comment naturally based on image + caption + other comments
+
+# CTA Behavior (CRITICAL!)
+follow_cta: true
+cta_rules:
+  # When post says "Comment X" → your comment is literally just "X"
+  exact_match: true
+  no_additions: true  # Don't add emojis or words to CTA response
+
+# Visual Analysis
+screenshot_for_comments: true  # Always screenshot before commenting
+screenshot_for_carousel: true
+screenshot_videos: true  # Even screenshot videos for context
+
+# Carousel Behavior
+carousel_swipes: [2, 5]  # View most/all carousel pages
+carousel_screenshot_each: false  # Only last page screenshot (saves ~100K tokens per carousel)
+
+# Caption Analysis
+expand_captions: true  # ALWAYS expand captions for full CTA
+detect_cta: true
+read_comments: true  # Check first few comments for context
+
+# Skip Behavior
+skip_probability: 0.05  # Rarely skip nurtured content

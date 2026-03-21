@@ -1,0 +1,63 @@
+# =============================================================================
+# DEVICE CONFIGURATION: phone_01
+# =============================================================================
+# Physical Android device configuration including network isolation settings.
+# Copy this file for each device in your fleet.
+
+device_id: "phone_01"
+device_ip: "192.168.1.10"        # LAN IP of your Android device
+device_name: "Xiaomi MI 8"       # Human-readable device name
+adb_serial: "your_adb_serial"    # From `adb devices` (optional, for WiFi MAC changes)
+
+# Geographic assignment for proxy and GPS
+geo:
+  country: "us"
+  country_code: "US"
+  city: "nyc"
+  # Coordinates for GPS spoofing
+  latitude: 40.7736
+  longitude: -73.9566
+  timezone: "America/New_York"
+
+# Accounts assigned to this device (references config/accounts/*.yaml)
+accounts:
+  - "example_account"
+
+# Proxy configuration (Decodo/Smartproxy or any HTTP CONNECT proxy)
+proxy:
+  enabled: true
+  type: "http-connect"
+  host: "your-proxy-provider.com"
+  port: 10001
+  username_env: "DECODO_USERNAME"
+  password_env: "DECODO_PASSWORD"
+  per_app_only: false      # Global proxy — routes ALL device traffic
+  drop_udp: true           # Block UDP to force traffic through TCP proxy
+  dns_proxy: true          # Route DNS through proxy to prevent leaks
+  nameserver: "8.8.8.8"
+
+# Fingerprint configuration
+fingerprint:
+  android_id: null          # If null, randomized on first setup
+  wifi_mac: null
+  build_model: "SM-G998B"
+  build_brand: "samsung"
+  build_manufacturer: "samsung"
+
+# GPS spoofing settings
+location:
+  enabled: true
+  method: "appium_settings"  # appium_settings | magisk | xposed
+  variance_meters: 500
+  update_interval_seconds: 30
+
+# Device health checks
+health:
+  connectivity_check_interval: 5   # minutes
+  app_stuck_timeout: 60            # seconds
+  auto_reboot_on_critical: false
+
+metadata:
+  created_at: "2026-01-01"
+  notes: "Example device config"
+  status: "active"  # active | maintenance | offline

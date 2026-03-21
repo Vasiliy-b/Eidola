@@ -1,0 +1,15 @@
+# Comment Style Configuration
+# Natural, human-like commenting — no rigid rules.
+#
+# The model decides what to comment based on image, caption, and other comments.
+# CTA responses are MANDATORY for nurtured accounts.
+
+# Style guidance (not constraints)
+style:
+  tone: casual              # Modern, casual tone — like texting a friend
+  natural: true             # Let the model decide naturally what to comment
+  
+# Anti-repetition (keep variety, don't repeat yourself)
+anti_spam:
+  max_repeat_in_window: 2   # Don't use same comment more than 2x per 20 comments
+  min_unique_ratio: 0.75    # At least 75% of comments must be unique

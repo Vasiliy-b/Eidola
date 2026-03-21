@@ -1,0 +1,44 @@
+# =============================================================================
+# ACTIVE ENGAGE MODE - Full Engagement
+# =============================================================================
+# Active participation, more likes and comments, visual analysis
+
+mode: active_engage
+description: "Активное взаимодействие с интересным контентом"
+
+# LLM Settings
+model: gemini-3-flash-preview  # Smart model for content analysis
+temperature: 1.0  # Google Gemini 3 recommended (Jan 2026)
+
+# Engagement Probabilities
+engagement_rates:
+  like: 0.40      # 40% of posts get liked
+  comment: 0.15   # 15% get comments
+  save: 0.20      # 20% get saved
+  share: 0.05     # 5% get shared
+
+# Nurtured Account Boost
+nurtured_boost: 2.0
+
+# Scroll Behavior
+scroll_speed: slow  # Slower scrolling to analyze content
+posts_to_view: [15, 40]
+
+# Comment Style
+comment_rules:
+  cta_priority: true  # Always follow CTA if detected (MANDATORY for nurtured)
+  natural_style: true  # No word limits — comment naturally based on image + caption
+
+# Visual Analysis
+screenshot_for_comments: true  # Take screenshot before commenting
+screenshot_for_carousel: true  # Screenshot each carousel page
+
+# Carousel Behavior
+carousel_swipes: [2, 5]  # View 2-5 pages randomly
+
+# Caption Analysis
+expand_captions: true  # Always tap "more" to see full caption
+detect_cta: true  # Look for call-to-action in captions
+
+# Skip Behavior
+skip_probability: 0.10  # 10% chance to skip

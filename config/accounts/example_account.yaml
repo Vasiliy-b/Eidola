@@ -1,0 +1,16 @@
+# Instagram account configuration example
+# Copy this file and rename to your account handle (e.g., my_account.yaml)
+account_id: "example_account"
+assigned_device: "phone_01"
+
+instagram:
+  username: "your_instagram_username"
+  password_env: "IG_PASS_EXAMPLE_ACCOUNT"
+  totp_secret_env: "IG_TOTP_EXAMPLE_ACCOUNT"
+
+# Optional: override default mode for this account
+# mode_override: "warmup"
+
+metadata:
+  created_at: "2026-01-01"
+  status: "active"  # active | paused | banned | warming_up

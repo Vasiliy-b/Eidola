@@ -1,0 +1,94 @@
+# Session Limits Configuration (GramAddict-style)
+# 
+# These settings control engagement behavior for natural human-like patterns.
+# Values in arrays represent [min, max] ranges - actual value is randomized.
+#
+# Reference: https://github.com/GramAddict/bot/blob/master/config-examples/config.yml
+
+# =============================================================================
+# Per-Session Limits
+# =============================================================================
+# Stop the session when any of these limits are reached.
+
+session:
+  # Likes per session
+  total_likes_limit: [120, 150]
+  
+  # Comments per session (keep low to avoid spam detection)
+  total_comments_limit: [3, 5]
+  
+  # Story watches per session
+  total_watches_limit: [120, 150]
+  
+  # Follows per session (if implementing follow feature)
+  total_follows_limit: [40, 50]
+  
+  # Unfollows per session
+  total_unfollows_limit: [40, 50]
+
+# =============================================================================
+# Interaction Probabilities (percentages)
+# =============================================================================
+# How often to perform certain actions when encountering content.
+
+probabilities:
+  # Percentage of accounts to watch stories
+  stories_percentage: [30, 40]
+  
+  # Percentage of carousel items to swipe through
+  carousel_percentage: [60, 70]
+  
+  # Like probability (100 = always like nurtured accounts)
+  likes_percentage: 100
+  
+  # Follow probability (0 = disabled)
+  follow_percentage: [0, 0]
+
+# =============================================================================
+# Watch Durations (seconds)
+# =============================================================================
+# How long to view different types of content.
+
+durations:
+  # Video content viewing time (view counts after 5s, agent adds 3-8s overhead)
+  watch_video_time: [5, 13]
+  
+  # Photo content viewing time (minimal - agent processing adds 3-8s)
+  watch_photo_time: [0.5, 1.5]
+  
+  # Story viewing time (per story)
+  watch_story_time: [3.5, 7]  # GramAddict: 7 iterations x 0.5-1s
+  
+  # Carousel item viewing time (minimal - agent processing adds 3-8s)
+  watch_carousel_item_time: [0.5, 1.5]
+
+# =============================================================================
+# Session Ending Conditions
+# =============================================================================
+
+ending_conditions:
+  # End session when likes limit reached
+  end_if_likes_limit_reached: true
+  
+  # End session when follows limit reached
+  end_if_follows_limit_reached: false
+  
+  # End session when watches limit reached
+  end_if_watches_limit_reached: false
+
+# =============================================================================
+# Scheduling (for future implementation)
+# =============================================================================
+# Not currently used - scheduled via external cron/scheduler.
+
+scheduling:
+  # Working hours in HH.MM-HH.MM format
+  working_hours:
+    - "10.15-16.40"
+    - "18.15-22.46"
+  
+  # Random time variation (minutes)
+  time_delta: [10, 15]
+  
+  # Minutes between sessions (~5 hours)
+  repeat: [280, 320]
